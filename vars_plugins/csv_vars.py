@@ -34,18 +34,22 @@ from ansible.module_utils._text import to_native
 from ansible.plugins.vars import BaseVarsPlugin
 from ansible.utils.vars import combine_vars
 import csv
+import glob
 import os
 import yaml
 
 FOUND = {}
 
+VARS = {}
 
 def load_from_csv(file_name):
     with open(file_name, 'r') as csv_data:
         reader = csv.DictReader(csv_data)
         out = yaml.safe_dump([row for row in reader])
-    return yaml.safe_load(out)
-
+    for var in yaml.safe_load(out):
+        for k, v in var.items():
+            if k == 'hostname':
+                VARS[v] = var
 
 class VarsModule(BaseVarsPlugin):
 
@@ -57,9 +61,11 @@ class VarsModule(BaseVarsPlugin):
         super(VarsModule, self).get_vars(loader, path, entities)
 
         data = {}
+        subdir = 'csv_vars'
+
         for entity in entities:
             if isinstance(entity, Host):
-                subdir = 'csv_vars'
+                pass
             elif isinstance(entity, Group):
                 continue
             else:
@@ -83,11 +89,7 @@ class VarsModule(BaseVarsPlugin):
                         if os.path.exists(b_opath):
                             if os.path.isdir(b_opath):
                                 self._display.debug("\tprocessing dir %s" % opath)
-                                found_files = loader.find_vars_files(
-                                    opath,
-                                    'nodes',
-                                    ['.csv']
-                                )
+                                found_files = glob.glob("%s/*.csv" % opath)
                                 FOUND[key] = found_files
                             else:
                                 self._display.warning(
@@ -95,10 +97,9 @@ class VarsModule(BaseVarsPlugin):
                                     skipping: %s" % (subdir, opath)
                                 )
                     for found in found_files:
-                        new_data = load_from_csv(found)
-                        for row_data in new_data:
-                            if row_data['hostname'] == entity.name:
-                                data = combine_vars(data, row_data)
+                        load_from_csv(found)
+                        new_data = VARS.get(entity.name, {})
+                        data = combine_vars(data, new_data)
 
                 except Exception as e:
                     raise AnsibleParserError(to_native(e))
